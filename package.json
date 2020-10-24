@@ -1,0 +1,29 @@
+{
+  "name": "demo-user-journey-full-stack",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "devDependencies": {
+    "css-loader": "^5.0.0",
+    "style-loader": "^2.0.0",
+    "webpack": "^4.44.2",
+    "webpack-cli": "^4.1.0",
+    "webpack-serve": "^3.2.0",
+    "workbox-core": "^5.1.4",
+    "workbox-precaching": "^5.1.4",
+    "workbox-routing": "^5.1.4",
+    "workbox-webpack-plugin": "^5.1.4"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.778.0",
+    "idb": "^5.0.7",
+    "lodash": "^4.17.20",
+    "morgan": "^1.10.0",
+    "uuid": "^8.3.1"
+  },
+  "scripts": {
+    "watch": "webpack --watch",
+    "server": "node server.js",
+    "start": "webpack-serve --config webpack.config.js"
+  }
+}

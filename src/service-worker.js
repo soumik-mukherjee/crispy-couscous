@@ -57,6 +57,7 @@ async function createDB() {
 const tryCreateNewJourney = async (client) => {
     // Check for any pending journeys, i.e. status !== CANCELLED or !== COMPLETED and === OPEN
     // Only if none are pending, create a new Journey
+    console.log('SOME_VAR: ', process.env.SOME_VAR)
 
     const journey = await appDb.getFromIndex('userJourneyHistory', 'byJourneyStatus', 'OPEN');
 

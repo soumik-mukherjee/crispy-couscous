@@ -3,6 +3,7 @@ const path = require("path");
 const { InjectManifest } = require("workbox-webpack-plugin");
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { CleanWebpackPlugin } = require('clean-webpack-plugin');
+const Dotenv = require('dotenv-webpack');
 const outputPath = path.resolve("./dist");
 
 module.exports = {
@@ -33,11 +34,7 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: "src/index.html",
     }),
-    /*
-    new Serve({
-      static: [outputPath, path.resolve("./static")],
-    }),
-    */
+    new Dotenv(),
     new InjectManifest({
       swSrc: "./src/service-worker.js",
     }),

@@ -1,0 +1,267 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Step function and related resources
+Resources:
+  UserJourneyTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      TableName: UserJourneyTable
+      AttributeDefinitions:
+        -
+          AttributeName: "journeyId"
+          AttributeType: "S"
+        -
+          AttributeName: "taskType"
+          AttributeType: "S"
+      KeySchema:
+        - 
+          AttributeName: "journeyId"
+          KeyType: "HASH"
+        - 
+          AttributeName: "taskType"
+          KeyType: "RANGE"
+
+  UserJourneyGraphQLApi:
+    Type: "AWS::AppSync::GraphQLApi"
+    Properties:
+      Name: UserJourneyGraphQLApi
+      AuthenticationType: "API_KEY"
+  
+  UserJourneyTableDataSourceAccessRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: UserJourneyTableDataSourceAccessRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: appsync.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: DynamoDbTableAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:Query"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:PutItem"
+                  - "dynamodb:DeleteItem"
+                  - "dynamodb:UpdateItem"
+                Resource: !GetAtt [UserJourneyTable, Arn]
+
+  UserJourneyTableDataSource:
+    Type: AWS::AppSync::DataSource
+    Properties:  
+      ApiId: !GetAtt [ UserJourneyGraphQLApi, ApiId ]
+      Name: UserJourneyTableDataSource
+      Description:
+        Ref: A data source to enable access to the UserJourneyTable
+      Type: "AMAZON_DYNAMODB"
+      ServiceRoleArn: !GetAtt [ UserJourneyTableDataSourceAccessRole, Arn]
+      DynamoDbConfig:
+        TableName: !Ref UserJourneyTable
+        AwsRegion: !Ref "AWS::Region"
+
+  CreateJourneyTaskLambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: UserJourneyCreateTasksLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: SQSReceiveMessagePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "sqs:ReceiveMessage"
+                  - "sqs:DeleteMessage"
+                  - "sqs:GetQueueAttributes"
+                  - "sqs:ChangeMessageVisibility"
+                Resource: !GetAtt [UserJourneyTasksQueue, Arn]
+        - PolicyName: UserJourneyTasksTableWriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "dynamodb:PutItem"
+                  - "dynamodb:DeleteItem"
+                  - "dynamodb:GetItem"
+                  - "dynamodb:UpdateItem"
+                Resource: !GetAtt [UserJourneyTable, Arn]   
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: !Sub "arn:${AWS::Partition}:logs:*:*:*"
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "states:SendTaskSuccess"
+                  - "states:SendTaskFailure"
+                Resource: !Ref UserJourneyStateMachine
+
+  UserJourneyTasksQueue:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: UserJourneyTasksQueue
+      DelaySeconds: 0
+      VisibilityTimeout: 30
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt [UserJourneyTasksDLQueue, Arn]
+        maxReceiveCount: 1
+
+  UserJourneyTasksDLQueue:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: UserJourneyTasksDLQueue
+      DelaySeconds: 0
+      VisibilityTimeout: 30
+
+  LambdaFunctionEventSourceMapping:
+    Type: "AWS::Lambda::EventSourceMapping"
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt [UserJourneyTasksQueue, Arn]
+      FunctionName: !GetAtt [CreateJourneyTaskLambda, Arn]
+
+  CreateJourneyTaskLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.lambda_handler"
+      Role: !GetAtt [CreateJourneyTaskLambdaExecutionRole, Arn ]
+      Code:
+        ZipFile: |
+          console.log('Loading function');
+          const AWS = require('aws-sdk');
+
+          exports.lambda_handler = (event, context, callback) => {
+              const stepfunctions = new AWS.StepFunctions();
+              const dynamodb = new AWS.DynamoDB();
+              let dynamoParams = { 
+                Item:{
+                  partKey:{}, 
+                  sortKey:{}, 
+                  taskToken:{}
+                }, 
+                TableName: 'UserJourneyTable'
+              }
+              for (const record of event.Records) {
+                  const messageBody = JSON.parse(record.body);
+                  const taskToken = messageBody.TaskToken;
+                  const executionId = messageBody.ExecutionId
+                  const taskType = messageBody.TaskType
+                  const executionName = messageBody.ExecutionName
+                  dynamoParams.Item.journeyId = { "S": `${executionName}` }
+                  dynamoParams.Item.taskType = { "S": `${taskType}` }
+                  dynamoParams.Item.taskToken = { "S": taskToken }
+
+                  dynamodb.putItem(dynamoParams, function(err, data) {
+                    if (err) {
+                      console.log(err, err.stack); // an error occurred
+                    }
+                    else {
+                      console.log(data);           // successful response
+                    }
+                  });
+              }
+          };
+
+      Runtime: "nodejs12.x"
+      Timeout: "25"
+
+  StatesExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: states.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: SQSSendMessagePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "sqs:SendMessage"
+                Resource: !GetAtt [UserJourneyTasksQueue, Arn]
+
+  UserJourneyStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      DefinitionString:
+        !Sub
+          - |-
+            {
+              "Comment": "A state machine modelling the user journey",
+              "StartAt": "AwaitEmailVerificationRequest",
+              "States": {
+                "AwaitEmailVerificationRequest": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+                  "Parameters": {
+                    "QueueUrl": "${sqsQueueUrl}",
+                    "MessageBody": {
+                      "MessageTitle": "Task started by Step Functions. Waiting for callback with task token.",
+                      "TaskToken.$": "$$.Task.Token",
+                      "ExecutionId.$": "$$.Execution.Id",
+                      "ExecutionName.$": "$$.Execution.Name",
+                      "TaskType": "AwaitEmailVerificationRequestTask"
+                    }
+                  },
+                  "Next": "Notify Success",
+                  "Catch": [
+                  {
+                    "ErrorEquals": [ "States.ALL" ],
+                    "Next": "Notify Failure"
+                  }
+                  ]
+                },
+                "Notify Success": {
+                  "Type": "Pass",
+                  "End": true
+                },
+                "Notify Failure": {
+                  "Type": "Pass",
+                  "End": true
+                }
+              }
+            }
+
+          - {sqsQueueUrl: !Ref UserJourneyTasksQueue}
+      RoleArn: !GetAtt [ StatesExecutionRole, Arn ]
+
+Outputs:
+  StateMachineArn:
+    Value:
+      Ref: UserJourneyStateMachine
+  UserJourneyGraphQLApiId:
+    Value:
+      Ref: !GetAtt [UserJourneyGraphQLApi, ApiId]
+  UserJourneyGraphQLApiEndpoint:
+    Value:
+      Ref: !GetAtt [UserJourneyGraphQLApi, GraphQLUrl]      

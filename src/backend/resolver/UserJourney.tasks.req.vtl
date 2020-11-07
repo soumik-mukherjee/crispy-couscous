@@ -1,0 +1,12 @@
+{
+    "version" : "2017-02-28",
+    "operation" : "Query",
+    "query" : {
+        ## Provide a query expression. **
+        "expression": "partKey = :id And sortKey = :sk",
+        "expressionValues" : {
+            ":id" : $util.dynamodb.toDynamoDBJson($ctx.source.journeyId),
+            ":sk" :  $util.dynamodb.toDynamoDBJson("02_TASK")
+        }
+    }
+}

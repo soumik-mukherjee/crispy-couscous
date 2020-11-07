@@ -1,6 +1,6 @@
 import { openDB, deleteDB, wrap, unwrap } from 'idb';
 import { precacheAndRoute } from 'workbox-precaching';
-import { UserOnboardingJourneyService } from './services';
+import { UserOnboardingJourneyService } from './sdk/services';
 import { registerRoute } from 'workbox-routing';
 
 var appDb;
@@ -35,12 +35,16 @@ self.addEventListener('activate', function (event) {
 });
 
 async function createDB() {
-    appDb = await openDB('appDb', 1, {
+    appDb = await openDB('appDb', 2, {
         upgrade(db, oldVersion, newVersion, transaction) {
             const store = db.createObjectStore('userJourneyHistory', {
                 keyPath: 'journeyId'
             });
             store.createIndex("byJourneyStatus", "status", { unique: false });
+
+            const tasksStore = db.createObjectStore('journeyTasksStore', {
+                keyPath: 'taskKey'
+            });
         },
         blocked() {
             // …
@@ -57,8 +61,7 @@ async function createDB() {
 const tryCreateNewJourney = async (client) => {
     // Check for any pending journeys, i.e. status !== CANCELLED or !== COMPLETED and === OPEN
     // Only if none are pending, create a new Journey
-    console.log('SOME_VAR: ', process.env.SOME_VAR)
-
+    
     const journey = await appDb.getFromIndex('userJourneyHistory', 'byJourneyStatus', 'OPEN');
 
     if (typeof journey !== 'undefined') {
@@ -98,7 +101,10 @@ const tasksPostRouteHandler = async ({ url, request, event, params }) => {
     return new Response(`${responseBody} <!-- Look Ma. Added Content. -->`); 
     */
     console.log('url, request, event, params', { url, request, event, params })
-    return new Response(`Hello World`);
+    const reqPayload = request.body.toJson();
+    console.log(reqPayload)
+    return UserOnboardingJourneyService.fetchTask({...reqPayload})
+    //return new Response(`Hello World`);
 };
 
 precacheAndRoute(self.__WB_MANIFEST);

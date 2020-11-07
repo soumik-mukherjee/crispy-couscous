@@ -1,0 +1,13 @@
+type JourneyTasks {
+	taskType: String!
+	taskToken: String!
+}
+
+type Query {
+	getJourney(journeyId: String!): UserJourney
+}
+
+type UserJourney {
+	journeyId: String
+	tasks: [JourneyTasks]
+}

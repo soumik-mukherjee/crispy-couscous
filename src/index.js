@@ -2,6 +2,9 @@ import _ from 'lodash';
 import './main.css';
 import { UserOnboardingJourneyService } from './services'
 
+var journeyId = '';
+var awaitEmailVerificationRequestTaskToken = '';
+
 async function onLoad() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/service-worker.js').then(onServiceWorkerRegistered, onServiceWorkerRegistrationFailed);
@@ -38,7 +41,9 @@ const onServiceWorkerMessage = async (event) => {
   const { message } = event.data;
   switch(message.type){
     case 'JOURNEY_INITIALIZED':
-      await fetchTask(message.journeyId, 'AwaitEmailVerificationRequestTask');
+      journeyId = message.journeyId;
+      const task = await fetchTask(message.journeyId, 'AwaitEmailVerificationRequestTask');
+      awaitEmailVerificationRequestTaskToken = task.taskType
     default:
       return;
   }
